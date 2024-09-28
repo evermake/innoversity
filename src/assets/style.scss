@@ -1,0 +1,14 @@
+:root {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  background: colors.$gray-900;
+  color: colors.$gray-100;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}

@@ -147,9 +147,6 @@ const timelineEnd = shallowRef(twoDaysLater)
 const now = useNow({ interval: T.Sec })
 const nowRulerX = computed(() => px(msToPx(msBetween(timelineStart, now))))
 
-// eslint-disable-next-line no-console
-console.log(timelineStart.value, ' — ', timelineEnd.value)
-
 const timelineDates = computed(() => {
   const dates = []
   let date = new Date(timelineStart.value.getTime())
@@ -422,40 +419,27 @@ useEventListener(wrapperEl, 'mouseup', (event) => {
 useEventListener(wrapperEl, 'mouseleave', () => {
   pendingBooking.value = null
 })
-
-function scrollToNow() {
-  if (scrollerEl.value) {
-    const nowEl = document.querySelector('.timeline-now')
-    if (nowEl) {
-      nowEl.scrollIntoView({
-        behavior: 'instant',
-        inline: 'center',
-        block: 'nearest',
-      })
-    }
-  }
-}
 </script>
 
 <template>
   <div class="h-full w-full flex flex-col items-center justify-center gap-2">
-    <div class="w-1200px border border-gray-8">
+    <div class="w-1200px">
       <div
-        class="timeline"
+        :class="$style.timeline"
         :style="pendingBookingData ? { cursor: 'crosshair' } : undefined"
       >
-        <div class="timeline-corner">
+        <div :class="$style['timeline-corner']">
           <h2>Timeline</h2>
         </div>
-        <div ref="scrollerEl" class="timeline-scroller">
-          <div ref="wrapperEl" class="timeline-wrapper">
+        <div ref="scrollerEl" :class="$style['timeline-scroller']">
+          <div ref="wrapperEl" :class="$style['timeline-wrapper']">
             <span
-              class="timeline-now"
+              :class="$style['timeline-now']"
               :style="{ '--now-x': nowRulerX }"
             />
             <div
               v-if="pendingBookingData"
-              class="timeline-booking-new"
+              :class="$style['timeline-booking-new']"
               :style="{
                 '--width': px(msToPx(pendingBookingData.duration)),
                 '--left': px(pendingBookingData.x),
@@ -466,32 +450,32 @@ function scrollToNow() {
                 <span>{{ durationFormatted(pendingBookingData.duration) }}</span>
               </div>
             </div>
-            <div class="timeline-header">
+            <div :class="$style['timeline-header']">
               <div
                 v-for="day in timelineDates"
                 :key="day.toString()"
-                class="timeline-header-item"
+                :class="$style['timeline-header-item']"
                 :style="{ width: `${PIXELS_PER_MINUTE * 60 * 24}px` }"
               >
-                <span class="timeline-header-item-day">
+                <span :class="$style['timeline-header-item-day']">
                   {{ dayTitle(day) }}
                 </span>
-                <div class="timeline-header-item-hours">
+                <div :class="$style['timeline-header-item-hours']">
                   <span v-for="h in HOURS_TIMES" :key="h">
                     <span>{{ h }}</span>
                   </span>
                 </div>
               </div>
             </div>
-            <div class="timeline-body">
-              <div v-for="room in actualRooms" :key="room.id" class="timeline-row">
-                <div class="timeline-row-header">
+            <div :class="$style['timeline-body']">
+              <div v-for="room in actualRooms" :key="room.id" :class="$style['timeline-row']">
+                <div :class="$style['timeline-row-header']">
                   {{ room.title }}
                 </div>
                 <div
                   v-for="booking in bookingsDataByRoomId.get(room.id)"
                   :key="booking.id"
-                  class="timeline-booking"
+                  :class="$style['timeline-booking']"
                   :style="{ '--left': booking.offsetX, '--width': booking.length }"
                 >
                   <div>
@@ -504,19 +488,30 @@ function scrollToNow() {
             </div>
           </div>
         </div>
-        <div ref="overlayEl" class="timeline-overlay" />
+        <div ref="overlayEl" :class="$style['timeline-overlay']" />
       </div>
     </div>
-    <button
-      class="border border-gray-8 rounded bg-transparent px-4 py-1 text-gray-2 hover:scale-105"
-      @click="scrollToNow"
-    >
-      Now
-    </button>
   </div>
 </template>
 
-<style lang="scss">
+<style module lang="scss">
+@mixin booking {
+  padding: 6px 2px;
+  user-select: none;
+  white-space: nowrap;
+
+  & > div {
+    width: 100%;
+    height: 100%;
+    padding: 0 6px 0 12px;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 2px 4px rgb(0 0 0 / 0.25);
+
+    @apply rounded-md;
+  }
+}
+
 .timeline {
   --sidebar-width: v-bind('SIDEBAR_WIDTH_PX');
   --header-height: v-bind('HEADER_HEIGHT_PX');
@@ -524,25 +519,12 @@ function scrollToNow() {
   --ppm: v-bind('PIXELS_PER_MINUTE');
   --rulers-bg: v-bind('RULERS_BG');
 
-  @mixin bookingItem {
-    padding: 6px 2px;
-    user-select: none;
-    white-space: nowrap;
-
-    & > div {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      padding: 0 6px 0 12px;
-
-      @apply rounded-md;
-    }
-  }
-
   position: relative;
+  overflow: hidden;
+  background: colors.$gray-900;
+  border: 1px solid colors.$gray-800;
 
-  @apply bg-gray-8;
+  @apply rounded-md;
 
   &-corner {
     position: absolute;
@@ -552,8 +534,15 @@ function scrollToNow() {
     height: var(--header-height);
     display: flex;
     align-items: center;
+    background: colors.$gray-950;
+    color: colors.$gray-200;
 
-    @apply bg-gray-9 px-2 text-lg;
+    border-color: colors.$gray-800;
+    border-style: solid;
+    border-bottom-width: 1px;
+    border-right-width: 1px;
+
+    @apply px-2 text-lg;
   }
 
   &-overlay {
@@ -563,6 +552,7 @@ function scrollToNow() {
     right: 0;
     bottom: 0;
     pointer-events: none;
+    box-shadow: inset 0 2px 6px 2px rgb(0 0 0 / 0.15);
   }
 
   &-scroller {
@@ -590,21 +580,23 @@ function scrollToNow() {
     position: absolute;
     height: 100%;
     width: 1px;
-    background: #c00;
+    background: colors.$red-800;
     left: calc(var(--sidebar-width) + var(--now-x));
     top: 0;
   }
 
   &-header {
-    display: flex;
     position: sticky;
-    width: fit-content;
     top: 0;
     z-index: 2;
+    display: flex;
+    width: fit-content;
     height: var(--header-height);
     margin-left: var(--sidebar-width);
+    border-bottom: 1px solid colors.$gray-800;
 
-    @apply bg-gray-9;
+    background: colors.$gray-950;
+    color: colors.$gray-500;
 
     &-item {
       display: flex;
@@ -623,7 +615,9 @@ function scrollToNow() {
 
         & > span {
           width: calc(var(--ppm) * 60px);
-          @apply text-sm text-gray-6;
+          color: colors.$gray-700;
+
+          @apply text-sm;
 
           & > span {
             display: inline-block;
@@ -652,14 +646,19 @@ function scrollToNow() {
       display: flex;
       align-items: center;
       padding: 0 12px;
+      background: colors.$gray-950;
+      color: colors.$gray-500;
 
-      @apply border-t border-r border-gray-8 bg-gray-9 text-gray-5;
+      border-color: colors.$gray-800;
+      border-style: solid;
+      border-right-width: 1px;
+      border-bottom-width: 1px;
     }
   }
 
   /* Item that is going to be created. */
   &-booking-new {
-    @include bookingItem;
+    @include booking;
 
     z-index: 1;
     position: absolute;
@@ -671,20 +670,23 @@ function scrollToNow() {
     & > div {
       padding: 0;
       justify-content: center;
-
-      @apply bg-green-8 bg-op-75 text-green-3 border border-green-6;
+      border: 1px solid colors.$purple-700;
+      background: colors.$purple-900;
+      color: colors.$purple-500;
     }
   }
 
   &-booking {
-    @include bookingItem;
+    @include booking;
 
     position: relative;
     left: var(--left);
     width: var(--width);
 
     & > div {
-      @apply bg-gray-9 text-gray-2 border border-gray-7;
+      background: colors.$gray-950;
+      color: colors.$gray-200;
+      border: 1px solid colors.$gray-800;
 
       & > span {
         position: sticky;
