@@ -32,17 +32,10 @@ function handleBooking({ from, to, roomId }: { from: Date, to: Date, roomId: num
 </script>
 
 <template>
-  <div class="h-full w-full">
-    <div class="mx-auto w-1200px pt-100px">
-      <BookingTimeline
-        @booking="({ from, to, room }) => {
-          handleBooking({
-            from,
-            to,
-            roomId: room.my_uni_id,
-          })
-        }"
-      />
-    </div>
+  <div class="h-full w-full p-48px">
+    <BookingTimeline
+      class="h-full"
+      @booking="({ from, to, room }) => handleBooking({ from, to, roomId: room.my_uni_id })"
+    />
   </div>
 </template>

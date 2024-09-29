@@ -3,7 +3,7 @@ import type { MaybeRef } from 'vue'
 import type { components, paths } from '../api/room-booking'
 import { useEventListener, useNow } from '@vueuse/core'
 import createClient from 'openapi-fetch'
-import { computed, onMounted, ref, shallowRef, unref } from 'vue'
+import { computed, onMounted, ref, shallowRef, toRaw, unref } from 'vue'
 import { svgToDataUrl } from '../utils/svg'
 
 const props = defineProps<{
@@ -401,7 +401,7 @@ useEventListener(wrapperEl, 'mouseup', (event) => {
   props.onBooking({
     from: safeRange[0],
     to: safeRange[1],
-    room: pendingBooking.value.room,
+    room: toRaw(pendingBooking.value.room),
   })
 
   pendingBooking.value = null
@@ -556,7 +556,6 @@ $time-block-width: 50px;
   background: colors.$gray-900;
   border: 1px solid colors.$gray-800;
   border-radius: borders.$radius-md;
-  container-type: inline-size;
 
   &-corner {
     @include text-md;
@@ -591,9 +590,9 @@ $time-block-width: 50px;
 
   &-scroller {
     position: relative;
+    max-height: 100%;
     overflow: auto;
     overscroll-behavior: contain;
-    max-height: 600px;
     scrollbar-width: none;
   }
 
@@ -688,7 +687,6 @@ $time-block-width: 50px;
       border-color: colors.$gray-800;
       border-style: solid;
       border-right-width: 1px;
-      border-bottom-width: 1px;
     }
   }
 
@@ -731,6 +729,12 @@ $time-block-width: 50px;
         text-overflow: ellipsis;
       }
     }
+  }
+}
+
+.timeline-row:not(:last-child) {
+  .timeline-row-header {
+    border-bottom-width: 1px;
   }
 }
 
