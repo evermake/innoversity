@@ -1,4 +1,13 @@
+@use './css/typography' as typography;
+
 :root {
+  --font-sans: #{typography.$font-sans};
+  --font-mono: #{typography.$font-mono};
+}
+
+:root {
+  @include typography.text-sans;
+
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
