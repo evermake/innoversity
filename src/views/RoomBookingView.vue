@@ -34,7 +34,6 @@ function handleBooking({ from, to, roomId }: { from: Date, to: Date, roomId: num
 <template>
   <div class="h-full w-full p-48px">
     <BookingTimeline
-      class="h-full"
       @booking="({ from, to, room }) => handleBooking({ from, to, roomId: room.my_uni_id })"
     />
   </div>

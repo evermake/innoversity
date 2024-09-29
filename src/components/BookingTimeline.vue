@@ -3,7 +3,7 @@ import type { MaybeRef } from 'vue'
 import type { components, paths } from '../api/room-booking'
 import { useEventListener, useNow } from '@vueuse/core'
 import createClient from 'openapi-fetch'
-import { computed, onMounted, ref, shallowRef, toRaw, unref } from 'vue'
+import { computed, onMounted, ref, shallowRef, toRaw, unref, watch } from 'vue'
 import { svgToDataUrl } from '../utils/svg'
 
 const props = defineProps<{
@@ -556,6 +556,8 @@ $time-block-width: 50px;
   background: colors.$gray-900;
   border: 1px solid colors.$gray-800;
   border-radius: borders.$radius-md;
+  display: flex;
+  max-height: 100%;
 
   &-corner {
     @include text-md;
@@ -590,7 +592,6 @@ $time-block-width: 50px;
 
   &-scroller {
     position: relative;
-    max-height: 100%;
     overflow: auto;
     overscroll-behavior: contain;
     scrollbar-width: none;
