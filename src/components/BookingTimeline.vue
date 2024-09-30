@@ -33,6 +33,13 @@ const PIXELS_PER_MINUTE = 100 / 30
 const MIN_BOOKING_DURATION_MINUTES = 15
 const BOOKING_DURATION_STEP = 5
 
+const SIDEBAR_WIDTH = 200
+const HEADER_HEIGHT = 60
+const ROW_HEIGHT = 50
+
+const msToPx = (ms: number) => (ms / T.Min) * PIXELS_PER_MINUTE
+const px = (n: number) => `${n}px`
+
 type Room = components['schemas']['Room']
 
 interface Booking {
@@ -42,9 +49,6 @@ interface Booking {
   startsAt: Date
   endsAt: Date
 }
-
-const msToPx = (ms: number) => (ms / T.Min) * PIXELS_PER_MINUTE
-const px = (n: number) => `${n}px`
 
 function msBetween(a: MaybeRef<Date | number>, b: MaybeRef<Date | number>) {
   a = unref(a)
@@ -93,18 +97,9 @@ function dayTitle(d: Date) {
   })
 }
 
-const today = new Date()
-today.setHours(0, 0, 0, 0)
-
-const endDate = new Date(today.getTime() + 7 * T.Day)
-
-const SIDEBAR_WIDTH = 200
-const HEADER_HEIGHT = 60
-const ROW_HEIGHT = 50
-
-const SIDEBAR_WIDTH_PX = px(SIDEBAR_WIDTH)
-const HEADER_HEIGHT_PX = px(HEADER_HEIGHT)
-const ROW_HEIGHT_PX = px(ROW_HEIGHT)
+const startDate = new Date()
+startDate.setHours(0, 0, 0, 0)
+const endDate = new Date(startDate.getTime() + 7 * T.Day)
 
 const client = createClient<paths>({ baseUrl: import.meta.env.VITE_APP_BOOKING_API_BASE_URL })
 const actualRooms = shallowRef<Room[]>([])
@@ -118,7 +113,7 @@ client.GET('/rooms/')
 
     actualRooms.value = data
   })
-client.GET('/bookings/', { params: { query: { start: today.toISOString(), end: endDate.toISOString() } } })
+client.GET('/bookings/', { params: { query: { start: startDate.toISOString(), end: endDate.toISOString() } } })
   .then(({ data, error }) => {
     if (error) {
       console.error(error)
@@ -134,10 +129,12 @@ client.GET('/bookings/', { params: { query: { start: today.toISOString(), end: e
     }))
   })
 
-const HOURS = Array.from({ length: 24 }).fill(null).map((_, i) => i)
-const HOURS_TIMES = HOURS.map(h => `${h.toString().padStart(2, '0')}:00`)
+const HOURS_TIMES = Array
+  .from({ length: 24 })
+  .fill(null)
+  .map((_, h) => `${h.toString().padStart(2, '0')}:00`)
 
-const timelineStart = shallowRef(today)
+const timelineStart = shallowRef(startDate)
 const timelineEnd = shallowRef(endDate)
 
 const now = useNow({ interval: T.Sec })
@@ -462,21 +459,22 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
   <div
     :class="$style.timeline"
     :style="{
-      '--sidebar-width': SIDEBAR_WIDTH_PX,
-      '--header-height': HEADER_HEIGHT_PX,
-      '--row-height': ROW_HEIGHT_PX,
+      '--sidebar-width': px(SIDEBAR_WIDTH),
+      '--header-height': px(HEADER_HEIGHT),
+      '--row-height': px(ROW_HEIGHT),
       '--ppm': PIXELS_PER_MINUTE,
+      '--now-x': nowRulerX,
       'cursor': pendingBookingData ? 'crosshair' : undefined,
     }"
   >
-    <div :class="$style['timeline-corner']">
+    <div :class="$style.corner">
       <h2>Timeline</h2>
     </div>
-    <div ref="scrollerEl" :class="$style['timeline-scroller']">
-      <div ref="wrapperEl" :class="$style['timeline-wrapper']" :style="{ '--now-x': nowRulerX }">
-        <span :class="$style['timeline-now']" />
-        <div :class="$style['now-time-wrapper']">
-          <span :class="$style['now-time-block']" @click="scrollToNow({ position: 'center' })">
+    <div ref="scrollerEl" :class="$style.scroller">
+      <div ref="wrapperEl" :class="$style.wrapper">
+        <span :class="$style['now-ruler']" />
+        <div :class="$style['now-timebox-wrapper']">
+          <span :class="$style['now-timebox']" @click="scrollToNow({ position: 'center' })">
             {{ `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}` }}
           </span>
         </div>
@@ -493,7 +491,7 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
         </svg>
         <div
           v-if="pendingBookingData"
-          :class="$style['timeline-booking-new']"
+          :class="$style['new-booking']"
           :style="{
             '--width': px(msToPx(pendingBookingData.duration)),
             '--left': px(pendingBookingData.x),
@@ -504,33 +502,35 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
             <span>{{ durationFormatted(pendingBookingData.duration) }}</span>
           </div>
         </div>
-        <div :class="$style['timeline-header']">
+        <div :class="$style.header">
           <div
             v-for="day in timelineDates"
             :key="day.toString()"
-            :class="$style['timeline-header-item']"
-            :style="{ width: `${PIXELS_PER_MINUTE * 60 * 24}px` }"
+            :class="$style['header-item']"
           >
-            <span :class="$style['timeline-header-item-day']">
+            <span :class="$style['header-item-day']">
               {{ dayTitle(day) }}
             </span>
-            <div :class="$style['timeline-header-item-hours']">
+            <div :class="$style['header-item-hours']">
               <span v-for="h in HOURS_TIMES" :key="h">
                 <span>{{ h }}</span>
               </span>
             </div>
           </div>
         </div>
-        <div :class="$style['timeline-body']">
-          <div v-for="room in actualRooms" :key="room.id" :class="$style['timeline-row']">
-            <div :class="$style['timeline-row-header']">
+        <div :class="$style.body">
+          <div v-for="room in actualRooms" :key="room.id" :class="$style.row">
+            <div :class="$style['row-header']">
               {{ room.title }}
             </div>
             <div
               v-for="booking in bookingsDataByRoomId.get(room.id)"
               :key="booking.id"
-              :class="$style['timeline-booking']"
-              :style="{ '--left': booking.offsetX, '--width': booking.length }"
+              :class="$style.booking"
+              :style="{
+                '--left': booking.offsetX,
+                '--width': booking.length,
+              }"
             >
               <div :title="booking.title">
                 <span>
@@ -542,15 +542,16 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
         </div>
       </div>
     </div>
-    <div ref="overlayEl" :class="$style['timeline-overlay']" />
+    <div ref="overlayEl" :class="$style.overlay" />
   </div>
 </template>
 
 <style module lang="scss">
-/* TODO: extract text mixins this to _typography.scss */
+/* TODO: extract text mixins to _typography.scss */
 /* TODO: systemize spacing (padding, margin, etc.) and use variables instead */
 
-$time-block-width: 50px;
+$timebox-width: 50px;
+$timebox-height: 20px;
 
 @mixin text-sm {
   font-size: 0.875rem;
@@ -578,10 +579,10 @@ $time-block-width: 50px;
   }
 }
 
-@mixin time-block {
+@mixin timebox {
   @include text-sm;
-  width: $time-block-width;
-  height: 20px;
+  width: $timebox-width;
+  height: $timebox-height;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -631,182 +632,143 @@ $time-block-width: 50px;
   border-radius: borders.$radius-md;
   display: flex;
   max-height: 100%;
+}
 
-  &-corner {
-    @include text-md;
+.corner {
+  @include text-md;
 
-    position: absolute;
-    top: 0;
-    z-index: 5;
-    width: var(--sidebar-width);
-    height: var(--header-height);
-    display: flex;
-    align-items: center;
-    padding-left: 12px;
-    background: var(--c-bg-items);
-    color: var(--c-text);
+  position: absolute;
+  top: 0;
+  z-index: 5;
+  width: var(--sidebar-width);
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+  background: var(--c-bg-items);
+  color: var(--c-text);
 
-    border-color: var(--c-borders);
-    border-style: solid;
-    border-bottom-width: 1px;
-    border-right-width: 1px;
-  }
+  border-color: var(--c-borders);
+  border-style: solid;
+  border-bottom-width: 1px;
+  border-right-width: 1px;
+}
 
-  &-overlay {
-    @include effects.shadow-inset-2;
+.overlay {
+  @include effects.shadow-inset-2;
 
-    position: absolute;
-    left: var(--sidebar-width);
-    top: var(--header-height);
-    right: 0;
-    bottom: 0;
-    pointer-events: none;
-  }
+  position: absolute;
+  left: var(--sidebar-width);
+  top: var(--header-height);
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
 
-  &-scroller {
-    position: relative;
-    overflow: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-  }
+.scroller {
+  position: relative;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
 
-  &-wrapper {
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  position: relative;
+
+  background-image: var(--rulers-bg);
+  background-position-x: var(--sidebar-width);
+  background-repeat: repeat;
+}
+
+.header {
+  @include text-md;
+
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  width: fit-content;
+  height: var(--header-height);
+  margin-left: var(--sidebar-width);
+  border-bottom: 1px solid var(--c-borders);
+
+  background: var(--c-bg-items);
+  color: var(--c-text-muted);
+
+  &-item {
     display: flex;
     flex-direction: column;
-    width: fit-content;
-    position: relative;
+    justify-content: space-between;
 
-    background-image: var(--rulers-bg);
-    background-position-x: var(--sidebar-width);
-    background-repeat: repeat;
-  }
+    &-day {
+      padding-left: 12px;
+      padding-top: 6px;
+      align-self: flex-start;
+      position: sticky;
+      left: var(--sidebar-width);
+    }
 
-  /* Ruler that shows current time. */
-  &-now {
-    z-index: 1;
-    position: absolute;
-    height: 100%;
-    width: 1px;
-    background: var(--c-ruler-now);
-    left: calc(var(--sidebar-width) + var(--now-x));
-    top: 0;
-  }
-
-  &-header {
-    @include text-md;
-
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    display: flex;
-    width: fit-content;
-    height: var(--header-height);
-    margin-left: var(--sidebar-width);
-    border-bottom: 1px solid var(--c-borders);
-
-    background: var(--c-bg-items);
-    color: var(--c-text-muted);
-
-    &-item {
+    &-hours {
       display: flex;
-      flex-direction: column;
-      justify-content: space-between;
+      align-items: center;
 
-      &-day {
-        padding-left: 12px;
-        padding-top: 6px;
-        align-self: flex-start;
-        position: sticky;
-        left: var(--sidebar-width);
-      }
-
-      &-hours {
-        display: flex;
-        align-items: center;
+      & > span {
+        width: calc(var(--ppm) * 60px);
 
         & > span {
-          width: calc(var(--ppm) * 60px);
-
-          & > span {
-            @include time-block;
-            transform: translateX(-50%);
-          }
+          @include timebox;
+          transform: translateX(-50%);
         }
       }
     }
   }
+}
 
-  &-body {
-    @include text-md;
-    display: flex;
-    flex-direction: column;
-  }
+.body {
+  @include text-md;
+  display: flex;
+  flex-direction: column;
+}
 
-  &-row {
-    height: var(--row-height);
-    display: flex;
-    align-items: stretch;
+.now-ruler {
+  z-index: 1;
+  position: absolute;
+  height: 100%;
+  width: 1px;
+  background: var(--c-ruler-now);
+  left: calc(var(--sidebar-width) + var(--now-x));
+  top: 0;
+}
 
-    &-header {
-      position: sticky;
-      left: 0;
-      z-index: 1;
-      flex: 0 0 var(--sidebar-width);
-      display: flex;
-      align-items: center;
-      padding: 0 12px;
-      background: var(--c-bg-items);
-      color: var(--c-text-muted);
+.row {
+  height: var(--row-height);
+  display: flex;
+  align-items: stretch;
 
-      border-color: var(--c-borders);
-      border-style: solid;
-      border-right-width: 1px;
+  &:not(:last-child) {
+    .row-header {
+      border-bottom-width: 1px;
     }
   }
+}
 
-  /* Item that is going to be created. */
-  &-booking-new {
-    @include booking;
+.row-header {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: 0 0 var(--sidebar-width);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--c-bg-items);
+  color: var(--c-text-muted);
 
-    z-index: 1;
-    position: absolute;
-    left: calc(var(--sidebar-width) + var(--left));
-    top: calc(var(--header-height) + var(--top));
-    width: var(--width);
-    height: var(--row-height);
-
-    & > div {
-      padding: 0;
-      justify-content: center;
-      border: 1px solid var(--c-textbox-borders-purple);
-      background: var(--c-textbox-bg-purple);
-      color: var(--c-textbox-text-purple);
-    }
-  }
-
-  &-booking {
-    @include booking;
-
-    position: relative;
-    left: var(--left);
-    width: var(--width);
-
-    & > div {
-      background: var(--c-bg-items);
-      color: var(--c-text);
-
-      :global(.dark) & {
-        border: 1px solid var(--c-borders);
-      }
-
-      & > span {
-        position: sticky;
-        left: var(--sidebar-width);
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-    }
-  }
+  border-color: var(--c-borders);
+  border-style: solid;
+  border-right-width: 1px;
 }
 
 .rulers-svg {
@@ -822,13 +784,50 @@ $time-block-width: 50px;
   }
 }
 
-.timeline-row:not(:last-child) {
-  .timeline-row-header {
-    border-bottom-width: 1px;
+.booking {
+  @include booking;
+
+  position: relative;
+  left: var(--left);
+  width: var(--width);
+
+  & > div {
+    background: var(--c-bg-items);
+    color: var(--c-text);
+
+    :global(.dark) & {
+      border: 1px solid var(--c-borders);
+    }
+
+    & > span {
+      position: sticky;
+      left: var(--sidebar-width);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
 }
 
-.now-time-wrapper {
+.new-booking {
+  @include booking;
+
+  z-index: 1;
+  position: absolute;
+  left: calc(var(--sidebar-width) + var(--left));
+  top: calc(var(--header-height) + var(--top));
+  width: var(--width);
+  height: var(--row-height);
+
+  & > div {
+    padding: 0;
+    justify-content: center;
+    border: 1px solid var(--c-textbox-borders-purple);
+    background: var(--c-textbox-bg-purple);
+    color: var(--c-textbox-text-purple);
+  }
+}
+
+.now-timebox-wrapper {
   position: sticky;
   top: 0;
   height: 0;
@@ -844,7 +843,7 @@ $time-block-width: 50px;
   }
 
   &::before {
-    flex: 0 0 calc(var(--now-x) + var(--sidebar-width) - ($time-block-width / 2));
+    flex: 0 0 calc(var(--now-x) + var(--sidebar-width) - ($timebox-width / 2));
   }
 
   &::after {
@@ -852,8 +851,8 @@ $time-block-width: 50px;
   }
 }
 
-.now-time-block {
-  @include time-block;
+.now-timebox {
+  @include timebox;
 
   position: sticky;
   right: 0;
