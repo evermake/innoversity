@@ -13,14 +13,6 @@ const props = defineProps<{
   }) => void
 }>()
 
-onMounted(() => {
-  scrollToNow('instant')
-})
-
-const PIXELS_PER_MINUTE = 100 / 30
-const MIN_BOOKING_DURATION_MINUTES = 15
-const BOOKING_DURATION_STEP = 5
-
 const T = {
   Ms: 1,
   Sec: 1000,
@@ -28,6 +20,18 @@ const T = {
   Hour: 1000 * 60 * 60,
   Day: 1000 * 60 * 60 * 24,
 }
+
+onMounted(() => {
+  scrollToNow({
+    behavior: 'instant',
+    position: 'left',
+    offsetMs: -30 * T.Min,
+  })
+})
+
+const PIXELS_PER_MINUTE = 100 / 30
+const MIN_BOOKING_DURATION_MINUTES = 15
+const BOOKING_DURATION_STEP = 5
 
 type Room = components['schemas']['Room']
 
@@ -400,22 +404,57 @@ useEventListener(wrapperEl, 'mouseleave', () => {
   pendingBooking.value = null
 })
 
-function scrollTo(d: Date, behavior: 'instant' | 'smooth' = 'smooth') {
+interface ScrollToOptions {
+  /** Date to scroll to. */
+  to: Date
+  /** Behavior of scroll. */
+  behavior?: 'smooth' | 'instant'
+  /** Position where the target date should be aligned. */
+  position?: 'left' | 'center' | 'right'
+  /** Offset to shift the target position by. */
+  offsetMs?: number
+}
+
+function scrollTo(options: ScrollToOptions) {
   const el = scrollerEl.value
 
   if (!el)
     return
 
-  const { width } = el.getBoundingClientRect()
+  const {
+    to,
+    behavior = 'smooth',
+    position = 'center',
+    offsetMs = 0,
+  } = options
 
-  scrollerEl.value?.scrollTo({
+  const { width } = el.getBoundingClientRect()
+  const toLeftPx = msToPx(msBetween(timelineStart, to))
+
+  let scrollLeftPx
+  switch (position) {
+    case 'left':
+      scrollLeftPx = toLeftPx
+      break
+    case 'center':
+      scrollLeftPx = toLeftPx - ((width - SIDEBAR_WIDTH) / 2)
+      break
+    case 'right':
+      scrollLeftPx = toLeftPx - (width - SIDEBAR_WIDTH) + 1
+      break
+  }
+
+  el.scrollTo({
     behavior,
-    left: msToPx(msBetween(timelineStart, d)) - ((width - SIDEBAR_WIDTH) / 2),
+    left: scrollLeftPx + msToPx(offsetMs),
   })
 }
 
-function scrollToNow(behavior: 'instant' | 'smooth' = 'smooth') {
-  scrollTo(now.value, behavior)
+function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
+  scrollTo({
+    ...options,
+    to: now.value,
+  })
 }
 </script>
 
@@ -437,7 +476,7 @@ function scrollToNow(behavior: 'instant' | 'smooth' = 'smooth') {
       <div ref="wrapperEl" :class="$style['timeline-wrapper']" :style="{ '--now-x': nowRulerX }">
         <span :class="$style['timeline-now']" />
         <div :class="$style['now-time-wrapper']">
-          <span :class="$style['now-time-block']" @click="scrollToNow()">
+          <span :class="$style['now-time-block']" @click="scrollToNow({ position: 'center' })">
             {{ `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}` }}
           </span>
         </div>
