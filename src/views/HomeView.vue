@@ -45,7 +45,7 @@ const actions = [
       </h2>
     </div>
     <div class="col-span-4" />
-    <div v-for="(link, i) in quicklinks" :key="i" class="group window relative aspect-square">
+    <div v-for="(link, i) in quicklinks" :key="i" class="window group relative aspect-square">
       <a
         :href="link.url"
         target="_blank"

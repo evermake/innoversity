@@ -7,5 +7,9 @@ export default antfu(
     formatters: true,
     unocss: true,
     vue: true,
+    ignores: [
+      'src/api/room-booking/index.d.ts',
+      'design/*.json',
+    ],
   },
 )

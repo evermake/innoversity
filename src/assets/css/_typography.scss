@@ -1,19 +1,20 @@
 $font-sans:
-  IBM Plex Sans,
+  'IBM Plex Sans',
   Inter,
   -apple-system,
-  Segoe UI,
+  'Segoe UI',
   Roboto,
-  Noto Sans,
+  'Noto Sans',
   Ubuntu,
   Cantarell,
-  Helvetica Neue;
+  'Helvetica Neue',
+  sans-serif;
 
 $font-mono:
-  IBM Plex Mono,
+  'IBM Plex Mono',
   ui-monospace,
   SFMono-Regular,
-  SF Mono,
+  'SF Mono',
   Menlo,
   Monaco,
   Consolas,
@@ -23,6 +24,7 @@ $font-mono:
 @mixin text-sans {
   font-family: var(--font-sans);
 }
+
 @mixin text-mono {
   font-family: var(--font-mono);
 }
