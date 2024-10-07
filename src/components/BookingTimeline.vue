@@ -5,12 +5,8 @@ import { useEventListener, useNow } from '@vueuse/core'
 import createClient from 'openapi-fetch'
 import { computed, onMounted, ref, shallowRef, toRaw, unref } from 'vue'
 
-const props = defineProps<{
-  onBooking: (data: {
-    from: Date
-    to: Date
-    room: Room
-  }) => void
+const emit = defineEmits<{
+  book: [newBooking: { from: Date, to: Date, room: Room }]
 }>()
 
 const T = {
@@ -41,13 +37,14 @@ const msToPx = (ms: number) => (ms / T.Min) * PIXELS_PER_MINUTE
 const px = (n: number) => `${n}px`
 
 type Room = components['schemas']['Room']
-
-interface Booking {
+type Booking = Omit<components['schemas']['Booking'], 'start' | 'end'> & {
   id: string
-  roomId: string
-  title: string
   startsAt: Date
   endsAt: Date
+}
+interface BookingPosition {
+  offsetX: number
+  length: number
 }
 
 function msBetween(a: MaybeRef<Date | number>, b: MaybeRef<Date | number>) {
@@ -127,10 +124,10 @@ client.GET('/bookings/', { params: { query: { start: startDate.toISOString(), en
     }
 
     actualBookings.value = data
-      .map(({ title, room_id, start, end }) => ({
+      .map(({ room_id, start, end, ...rest }) => ({
+        ...rest,
+        room_id,
         id: `${room_id}_${start}_${end}`,
-        title,
-        roomId: room_id,
         startsAt: new Date(start),
         endsAt: new Date(end),
       }))
@@ -140,11 +137,11 @@ const actualBookingsByRoomSorted = computed(() => {
   const map = new Map<Room['id'], Booking[]>()
 
   actualBookings.value.forEach((booking) => {
-    const bookings = map.get(booking.roomId)
+    const bookings = map.get(booking.room_id)
     if (bookings)
       bookings.push(booking)
     else
-      map.set(booking.roomId, [booking])
+      map.set(booking.room_id, [booking])
   })
 
   // Need to sort arrays, because later the binary search will be used on them.
@@ -179,45 +176,28 @@ const timelineDates = computed(() => {
   return dates
 })
 
-interface BookingData {
-  id: string
-  title: string
-  offsetX: string // e.g. "123px"
-  length: string // e.g. "123px"
-  startsAt: Date
-  endsAt: Date
-}
-
-const bookingsDataByRoomId = computed(() => {
+const bookingPositions = computed(() => {
   const start = timelineStart.value
-  const sortedBookingsByRoom = actualBookingsByRoomSorted.value
+  const positions = new Map<Booking['id'], BookingPosition>()
 
-  const roomLengths = new Map<Room['id'], number>()
-  return new Map<Room['id'], BookingData[]>(
-    Array
-      .from(sortedBookingsByRoom.entries())
-      .map((([roomId, roomBookings]) => [
-        roomId,
-        roomBookings.map(({ id, title, startsAt, endsAt }) => {
-          // Need to do this sort of calculation due to how the bookings
-          // are rendered on the timeline: they are rendered one-by-one
-          // in a flex container, so the actual position of each booking
-          // depends on previous bookings.
+  for (const bookings of actualBookingsByRoomSorted.value.values()) {
+    let roomLength = 0
+    for (const { id, startsAt, endsAt } of bookings) {
+      // Need to do this sort of calculation due to how the bookings
+      // are rendered on the timeline: they are rendered one-by-one
+      // in a flex container, so the actual position of each booking
+      // depends on previous bookings.
 
-          const roomLength = roomLengths.get(roomId) ?? 0
-          const length = msToPx(msBetween(startsAt, endsAt))
-          roomLengths.set(roomId, roomLength + length)
-          return {
-            id,
-            title,
-            length: px(length),
-            offsetX: px(msToPx(msBetween(start, startsAt)) - roomLength),
-            startsAt,
-            endsAt,
-          }
-        }),
-      ])),
-  )
+      const length = msToPx(msBetween(startsAt, endsAt))
+      positions.set(id, {
+        offsetX: msToPx(msBetween(start, startsAt)) - roomLength,
+        length,
+      })
+      roomLength += length
+    }
+  }
+
+  return positions
 })
 
 /**
@@ -239,7 +219,7 @@ function intersectsSomeBooking(
   if (aMs >= bMs)
     throw new Error('invalid range limits')
 
-  const bookings = bookingsDataByRoomId.value.get(roomId)
+  const bookings = actualBookingsByRoomSorted.value.get(roomId)
   if (!bookings || bookings.length === 0)
     return false
 
@@ -418,7 +398,7 @@ useEventListener(wrapperEl, 'mouseup', (event) => {
     return
   }
 
-  props.onBooking({
+  emit('book', {
     from: safeRange[0],
     to: safeRange[1],
     room: toRaw(pendingBooking.value.room),
@@ -488,14 +468,14 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
       '--row-height': px(ROW_HEIGHT),
       '--ppm': PIXELS_PER_MINUTE,
       '--now-x': nowRulerX,
-      ...(pendingBookingData ? {
+      ...(pendingBookingData && {
         'cursor': 'crosshair',
         '--new-x': px(pendingBookingData.x),
         '--new-y': px(pendingBookingData.y),
         '--new-length': px(msToPx(pendingBookingData.duration)),
-      } : undefined),
+      }),
     }"
-    :data-new-pressed="(pendingBookingData && pendingBooking?.pressedAt) ? '123' : null"
+    :data-new-pressed="(pendingBookingData && pendingBooking?.pressedAt) ? '' : null"
   >
     <div :class="$style.corner">
       <h2>Timeline</h2>
@@ -569,12 +549,12 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
               {{ room.title }}
             </div>
             <div
-              v-for="booking in bookingsDataByRoomId.get(room.id)"
+              v-for="booking in actualBookingsByRoomSorted.get(room.id)?.values()"
               :key="booking.id"
               :class="$style.booking"
               :style="{
-                '--left': booking.offsetX,
-                '--width': booking.length,
+                '--left': px(bookingPositions.get(booking.id)?.offsetX ?? 0),
+                '--width': px(bookingPositions.get(booking.id)?.length ?? 0),
               }"
             >
               <div :title="booking.title">
