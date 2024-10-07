@@ -80,10 +80,31 @@ export interface components {
              */
             title: string;
             /**
+             * Short Name
+             * @description Shorter version of room title
+             */
+            short_name: string;
+            /**
              * My Uni Id
              * @description ID of room on My University portal
              */
             my_uni_id: number;
+            /**
+             * Capacity
+             * @description Room capacity, amount of people
+             */
+            capacity?: number | null;
+            /**
+             * Access Level
+             * @description Access level to the room. Yellow = for students. Red = for employees. Special = special rules apply.
+             */
+            access_level?: ("yellow" | "red" | "special") | null;
+            /**
+             * Restrict Daytime
+             * @description Prohibit to book during working hours. True = this room is available only at night 19:00-8:00, or full day on weekends.
+             * @default false
+             */
+            restrict_daytime: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -126,7 +147,9 @@ export interface operations {
     bookings_bookings: {
         parameters: {
             query: {
+                /** @example 2024-10-06T21:02+00:00 */
                 start: string;
+                /** @example 2024-10-07T06:02+00:00 */
                 end: string;
             };
             header?: never;
