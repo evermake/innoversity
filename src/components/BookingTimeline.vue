@@ -5,8 +5,21 @@ import { useEventListener, useNow } from '@vueuse/core'
 import createClient from 'openapi-fetch'
 import { computed, onMounted, ref, shallowRef, toRaw, unref } from 'vue'
 
+export type Room = components['schemas']['Room']
+export interface NewBooking {
+  from: Date
+  to: Date
+  room: Room
+}
+export type Booking = Omit<components['schemas']['Booking'], 'start' | 'end'> & {
+  id: string
+  startsAt: Date
+  endsAt: Date
+}
+
 const emit = defineEmits<{
-  book: [newBooking: { from: Date, to: Date, room: Room }]
+  book: [newBooking: NewBooking]
+  bookingClick: [booking: Booking]
 }>()
 
 const T = {
@@ -36,12 +49,6 @@ const ROW_HEIGHT = 50
 const msToPx = (ms: number) => (ms / T.Min) * PIXELS_PER_MINUTE
 const px = (n: number) => `${n}px`
 
-type Room = components['schemas']['Room']
-type Booking = Omit<components['schemas']['Booking'], 'start' | 'end'> & {
-  id: string
-  startsAt: Date
-  endsAt: Date
-}
 interface BookingPosition {
   offsetX: number
   length: number
@@ -105,8 +112,8 @@ startDate.setHours(0, 0, 0, 0)
 const endDate = new Date(startDate.getTime() + 7 * T.Day)
 
 const client = createClient<paths>({ baseUrl: import.meta.env.VITE_APP_BOOKING_API_BASE_URL })
+
 const actualRooms = shallowRef<Room[]>([])
-const actualBookings = shallowRef<Booking[]>([])
 client.GET('/rooms/')
   .then(({ data, error }) => {
     if (error) {
@@ -116,6 +123,10 @@ client.GET('/rooms/')
 
     actualRooms.value = data
   })
+
+// TODO: remove this, when backend will return booking UIDs.
+let bookingIdCounter = 0
+const actualBookings = shallowRef<Map<Booking['id'], Booking>>()
 client.GET('/bookings/', { params: { query: { start: startDate.toISOString(), end: endDate.toISOString() } } })
   .then(({ data, error }) => {
     if (error) {
@@ -123,26 +134,32 @@ client.GET('/bookings/', { params: { query: { start: startDate.toISOString(), en
       return
     }
 
-    actualBookings.value = data
-      .map(({ room_id, start, end, ...rest }) => ({
-        ...rest,
-        room_id,
-        id: `${room_id}_${start}_${end}`,
-        startsAt: new Date(start),
-        endsAt: new Date(end),
-      }))
+    const map = new Map<Booking['id'], Booking>()
+
+    for (const booking of data) {
+      const mappedBooking = {
+        ...booking,
+        id: (++bookingIdCounter).toString(),
+        startsAt: new Date(booking.start),
+        endsAt: new Date(booking.end),
+      }
+
+      map.set(mappedBooking.id, mappedBooking)
+    }
+
+    actualBookings.value = map
   })
 
 const actualBookingsByRoomSorted = computed(() => {
   const map = new Map<Room['id'], Booking[]>()
 
-  actualBookings.value.forEach((booking) => {
+  for (const booking of actualBookings.value?.values() ?? []) {
     const bookings = map.get(booking.room_id)
     if (bookings)
       bookings.push(booking)
     else
       map.set(booking.room_id, [booking])
-  })
+  }
 
   // Need to sort arrays, because later the binary search will be used on them.
   map.forEach(bookings => bookings.sort(
@@ -457,6 +474,19 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
     to: now.value,
   })
 }
+
+function handleBookingClick(event: MouseEvent) {
+  if (event.currentTarget instanceof HTMLElement) {
+    const bookingId = event.currentTarget.dataset.bookingId
+    if (bookingId) {
+      const booking = actualBookings.value?.get(bookingId)
+      if (booking)
+        emit('bookingClick', booking)
+      else
+        console.warn(`undefined booking clicked (ID=${bookingId})`)
+    }
+  }
+}
 </script>
 
 <template>
@@ -557,7 +587,11 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
                 '--width': px(bookingPositions.get(booking.id)?.length ?? 0),
               }"
             >
-              <div :title="booking.title">
+              <div
+                :title="booking.title"
+                :data-booking-id="booking.id"
+                @click="handleBookingClick"
+              >
                 <span>
                   {{ booking.title }}
                 </span>
@@ -858,6 +892,7 @@ $timebox-height: 20px;
   width: var(--width);
 
   & > div {
+    cursor: pointer;
     background: var(--c-bg-items);
     color: var(--c-text);
 
