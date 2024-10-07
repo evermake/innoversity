@@ -89,6 +89,12 @@ function durationFormatted(durationMs: number): string {
   return `${hours > 0 ? `${hours}h ` : ''}${minutes > 0 ? `${minutes}m` : ''}`
 }
 
+function clockTime(d: Date): string {
+  const hh = d.getHours().toString().padStart(2, '0')
+  const mm = d.getMinutes().toString().padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
 function dayTitle(d: Date) {
   return d.toLocaleDateString('en-US', {
     day: 'numeric',
@@ -306,12 +312,13 @@ const pendingBookingData = computed(() => {
     return null
 
   const [l, r] = safeRange
-  const duration = msBetween(l, r)
 
   return {
+    start: l,
+    end: r,
+    duration: msBetween(l, r),
     x: msToPx(msBetween(timelineStart, l)),
     y: pendingBooking.value.roomIdx * ROW_HEIGHT,
-    duration,
   }
 })
 
@@ -450,18 +457,13 @@ function scrollTo(options: ScrollToOptions) {
   const { width } = el.getBoundingClientRect()
   const toLeftPx = msToPx(msBetween(timelineStart, to))
 
-  let scrollLeftPx
-  switch (position) {
-    case 'left':
-      scrollLeftPx = toLeftPx
-      break
-    case 'center':
-      scrollLeftPx = toLeftPx - ((width - SIDEBAR_WIDTH) / 2)
-      break
-    case 'right':
-      scrollLeftPx = toLeftPx - (width - SIDEBAR_WIDTH) + 1
-      break
-  }
+  const scrollLeftPx = (() => {
+    switch (position) {
+      case 'left': return toLeftPx
+      case 'center': return toLeftPx - ((width - SIDEBAR_WIDTH) / 2)
+      case 'right': return toLeftPx - (width - SIDEBAR_WIDTH) + 1
+    }
+  })()
 
   el.scrollTo({
     behavior,
@@ -486,20 +488,43 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
       '--row-height': px(ROW_HEIGHT),
       '--ppm': PIXELS_PER_MINUTE,
       '--now-x': nowRulerX,
-      'cursor': pendingBookingData ? 'crosshair' : undefined,
+      ...(pendingBookingData ? {
+        'cursor': 'crosshair',
+        '--new-x': px(pendingBookingData.x),
+        '--new-y': px(pendingBookingData.y),
+        '--new-length': px(msToPx(pendingBookingData.duration)),
+      } : undefined),
     }"
+    :data-new-pressed="(pendingBookingData && pendingBooking?.pressedAt) ? '123' : null"
   >
     <div :class="$style.corner">
       <h2>Timeline</h2>
     </div>
+
     <div ref="scrollerEl" :class="$style.scroller">
       <div ref="wrapperEl" :class="$style.wrapper">
         <span :class="$style['now-ruler']" />
         <div :class="$style['now-timebox-wrapper']">
           <span :class="$style['now-timebox']" @click="scrollToNow({ position: 'center' })">
-            {{ `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}` }}
+            {{ clockTime(now) }}
           </span>
         </div>
+
+        <template v-if="pendingBookingData">
+          <span :class="$style['new-booking-ruler-start']" />
+          <span :class="$style['new-booking-ruler-end']" />
+          <div :class="$style['new-booking-timeboxes-wrapper']">
+            <div :class="$style['new-booking-timeboxes-container']">
+              <span :class="$style['new-booking-timebox-start']">
+                {{ clockTime(pendingBookingData.start) }}
+              </span>
+              <span :class="$style['new-booking-timebox-end']">
+                {{ clockTime(pendingBookingData.end) }}
+              </span>
+            </div>
+          </div>
+        </template>
+
         <svg :class="$style['rulers-svg']" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <pattern id="Rulers" x="0" y="0" :width="PIXELS_PER_MINUTE * 60" height="100%" patternUnits="userSpaceOnUse">
@@ -511,19 +536,16 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
           </defs>
           <rect fill="url(#Rulers)" width="100%" height="100%" />
         </svg>
+
         <div
           v-if="pendingBookingData"
           :class="$style['new-booking']"
-          :style="{
-            '--width': px(msToPx(pendingBookingData.duration)),
-            '--left': px(pendingBookingData.x),
-            '--top': px(pendingBookingData.y),
-          }"
         >
           <div>
             <span>{{ durationFormatted(pendingBookingData.duration) }}</span>
           </div>
         </div>
+
         <div :class="$style.header">
           <div
             v-for="day in timelineDates"
@@ -540,6 +562,7 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
             </div>
           </div>
         </div>
+
         <div :class="$style.body">
           <div v-for="room in actualRooms" :key="room.id" :class="$style.row">
             <div :class="$style['row-header']">
@@ -564,6 +587,7 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
         </div>
       </div>
     </div>
+
     <div ref="overlayEl" :class="$style.overlay" />
   </div>
 </template>
@@ -626,6 +650,7 @@ $timebox-height: 20px;
   --c-textbox-text-purple: #{colors.$purple-900};
   --c-textbox-borders-purple: #{colors.$purple-600};
   --c-ruler-now: #{colors.$red-600};
+  --c-ruler-new: #{colors.$purple-600};
 }
 
 :global(.dark) {
@@ -643,6 +668,7 @@ $timebox-height: 20px;
     --c-textbox-text-purple: #{colors.$purple-500};
     --c-textbox-borders-purple: #{colors.$purple-700};
     --c-ruler-now: #{colors.$red-800};
+    --c-ruler-new: #{colors.$purple-800};
   }
 }
 
@@ -755,16 +781,6 @@ $timebox-height: 20px;
   flex-direction: column;
 }
 
-.now-ruler {
-  z-index: 1;
-  position: absolute;
-  height: 100%;
-  width: 1px;
-  background: var(--c-ruler-now);
-  left: calc(var(--sidebar-width) + var(--now-x));
-  top: 0;
-}
-
 .row {
   height: var(--row-height);
   display: flex;
@@ -806,49 +822,6 @@ $timebox-height: 20px;
   }
 }
 
-.booking {
-  @include booking;
-
-  position: relative;
-  left: var(--left);
-  width: var(--width);
-
-  & > div {
-    background: var(--c-bg-items);
-    color: var(--c-text);
-
-    :global(.dark) & {
-      border: 1px solid var(--c-borders);
-    }
-
-    & > span {
-      position: sticky;
-      left: var(--sidebar-width);
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-  }
-}
-
-.new-booking {
-  @include booking;
-
-  z-index: 1;
-  position: absolute;
-  left: calc(var(--sidebar-width) + var(--left));
-  top: calc(var(--header-height) + var(--top));
-  width: var(--width);
-  height: var(--row-height);
-
-  & > div {
-    padding: 0;
-    justify-content: center;
-    border: 1px solid var(--c-textbox-borders-purple);
-    background: var(--c-textbox-bg-purple);
-    color: var(--c-textbox-text-purple);
-  }
-}
-
 .now-timebox-wrapper {
   position: sticky;
   top: 0;
@@ -885,5 +858,116 @@ $timebox-height: 20px;
   border: 1px solid var(--c-textbox-borders-red);
   border-radius: borders.$radius-xs;
   cursor: pointer;
+}
+
+.now-ruler {
+  z-index: 1;
+  position: absolute;
+  height: 100%;
+  width: 1px;
+  background: var(--c-ruler-now);
+  left: calc(var(--sidebar-width) + var(--now-x));
+  top: 0;
+}
+
+.booking {
+  @include booking;
+
+  position: relative;
+  left: var(--left);
+  width: var(--width);
+
+  & > div {
+    background: var(--c-bg-items);
+    color: var(--c-text);
+
+    :global(.dark) & {
+      border: 1px solid var(--c-borders);
+    }
+
+    & > span {
+      position: sticky;
+      left: var(--sidebar-width);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+}
+
+.new-booking {
+  @include booking;
+
+  z-index: 1;
+  position: absolute;
+  left: calc(var(--sidebar-width) + var(--new-x));
+  top: calc(var(--header-height) + var(--new-y));
+  width: var(--new-length);
+  height: var(--row-height);
+
+  & > div {
+    padding: 0;
+    justify-content: center;
+    border: 1px solid var(--c-textbox-borders-purple);
+    background: var(--c-textbox-bg-purple);
+    color: var(--c-textbox-text-purple);
+  }
+}
+
+.new-booking-timeboxes-wrapper {
+  position: sticky;
+  top: 0;
+  height: 0;
+  z-index: 4;
+  overflow: visible;
+}
+
+.new-booking-timeboxes-container {
+  position: absolute;
+  left: calc(var(--sidebar-width) + var(--new-x) + (var(--new-length) / 2));
+  top: var(--header-height);
+  width: calc(max($timebox-width, var(--new-length)) + $timebox-width);
+  transform: translate(-50%, -100%);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.new-booking-timebox-start,
+.new-booking-timebox-end {
+  @include timebox;
+
+  flex: 0 0 auto;
+  background: var(--c-textbox-bg-purple);
+  color: var(--c-textbox-text-purple);
+  border: 1px solid var(--c-textbox-borders-purple);
+  border-radius: borders.$radius-xs;
+}
+.new-booking-timebox-start {
+  margin-right: auto;
+}
+.new-booking-timebox-end {
+  margin-left: auto;
+}
+
+.new-booking-ruler-start,
+.new-booking-ruler-end {
+  position: absolute;
+  top: 0;
+  z-index: 1;
+  height: 100%;
+  width: 1px;
+  background: var(--c-ruler-new);
+}
+.new-booking-ruler-start {
+  left: calc(var(--sidebar-width) + var(--new-x));
+}
+.new-booking-ruler-end {
+  left: calc(var(--sidebar-width) + var(--new-x) + var(--new-length));
+}
+
+.timeline:not([data-new-pressed]) .new-booking-ruler-end,
+.timeline:not([data-new-pressed]) .new-booking-timebox-end {
+  visibility: hidden;
 }
 </style>
