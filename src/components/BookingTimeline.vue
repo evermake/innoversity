@@ -120,14 +120,36 @@ client.GET('/bookings/', { params: { query: { start: startDate.toISOString(), en
       return
     }
 
-    actualBookings.value = data.map(({ title, room_id, start, end }) => ({
-      id: `${room_id}_${start}_${end}`,
-      title,
-      roomId: room_id,
-      startsAt: new Date(start),
-      endsAt: new Date(end),
-    }))
+    actualBookings.value = data
+      .map(({ title, room_id, start, end }) => ({
+        id: `${room_id}_${start}_${end}`,
+        title,
+        roomId: room_id,
+        startsAt: new Date(start),
+        endsAt: new Date(end),
+      }))
   })
+
+const actualBookingsByRoomSorted = computed(() => {
+  const map = new Map<Room['id'], Booking[]>()
+
+  actualBookings.value.forEach((booking) => {
+    const bookings = map.get(booking.roomId)
+    if (bookings)
+      bookings.push(booking)
+    else
+      map.set(booking.roomId, [booking])
+  })
+
+  // Need to sort arrays, because later the binary search will be used on them.
+  map.forEach(bookings => bookings.sort(
+    // We assume that if booking A starts before any booking B, A also ends
+    // before B start.
+    (a, b) => a.startsAt.getTime() - b.startsAt.getTime(),
+  ))
+
+  return map
+})
 
 const HOURS_TIMES = Array
   .from({ length: 24 })
@@ -162,34 +184,34 @@ interface BookingData {
 
 const bookingsDataByRoomId = computed(() => {
   const start = timelineStart.value
-  const bookingsData = new Map<string, BookingData[]>()
-  const totalLengths = new Map<string, number>()
-  for (const { id, title, roomId, startsAt, endsAt } of actualBookings.value) {
-    const roomLength = totalLengths.get(roomId) ?? 0
-    if (!bookingsData.has(roomId))
-      bookingsData.set(roomId, [])
+  const sortedBookingsByRoom = actualBookingsByRoomSorted.value
 
-    const roomData = bookingsData.get(roomId)!
-    const length = msToPx(msBetween(startsAt, endsAt))
-    roomData.push({
-      id,
-      title,
-      length: px(length),
-      offsetX: px(msToPx(msBetween(start, startsAt)) - roomLength),
-      startsAt,
-      endsAt,
-    })
-    totalLengths.set(roomId, roomLength + length)
-  }
+  const roomLengths = new Map<Room['id'], number>()
+  return new Map<Room['id'], BookingData[]>(
+    Array
+      .from(sortedBookingsByRoom.entries())
+      .map((([roomId, roomBookings]) => [
+        roomId,
+        roomBookings.map(({ id, title, startsAt, endsAt }) => {
+          // Need to do this sort of calculation due to how the bookings
+          // are rendered on the timeline: they are rendered one-by-one
+          // in a flex container, so the actual position of each booking
+          // depends on previous bookings.
 
-  // Need to sort arrays, because later the binary search will be used on them.
-  bookingsData.forEach(bookings => bookings.sort(
-    // We assume that if booking A starts before any booking B, A also ends
-    // before B start.
-    (a, b) => a.startsAt.getTime() - b.startsAt.getTime(),
-  ))
-
-  return bookingsData
+          const roomLength = roomLengths.get(roomId) ?? 0
+          const length = msToPx(msBetween(startsAt, endsAt))
+          roomLengths.set(roomId, roomLength + length)
+          return {
+            id,
+            title,
+            length: px(length),
+            offsetX: px(msToPx(msBetween(start, startsAt)) - roomLength),
+            startsAt,
+            endsAt,
+          }
+        }),
+      ])),
+  )
 })
 
 /**
