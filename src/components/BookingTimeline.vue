@@ -22,6 +22,14 @@ const emit = defineEmits<{
   bookingClick: [booking: Booking]
 }>()
 
+const PLACEHOLDER_ROOMS = Array
+  .from({ length: 15 })
+  .fill('placeholder') as ('placeholder'[])
+
+const PLACEHOLDER_BOOKINGS = Array
+  .from({ length: 10 })
+  .fill('placeholder') as ('placeholder'[])
+
 const T = {
   Ms: 1,
   Sec: 1000,
@@ -113,26 +121,34 @@ const endDate = new Date(startDate.getTime() + 7 * T.Day)
 
 const client = createClient<paths>({ baseUrl: import.meta.env.VITE_APP_BOOKING_API_BASE_URL })
 
-const actualRooms = shallowRef<Room[]>([])
+const actualRooms = shallowRef<(Room)[]>([])
+const roomsLoading = shallowRef(true)
 client.GET('/rooms/')
-  .then(({ data, error }) => {
-    if (error) {
-      console.error(error)
-      return
-    }
+  .then(({ data }) => {
+    if (!data)
+      throw new Error('no data')
 
+    roomsLoading.value = false
     actualRooms.value = data
+  })
+  .catch((err) => {
+    console.error('Failed to load rooms:', err)
+    // eslint-disable-next-line no-alert
+    alert('Failed to load rooms. Try again later.')
   })
 
 // TODO: remove this, when backend will return booking UIDs.
 let bookingIdCounter = 0
+
 const actualBookings = shallowRef<Map<Booking['id'], Booking>>()
+const bookingsLoading = shallowRef(true)
 client.GET('/bookings/', { params: { query: { start: startDate.toISOString(), end: endDate.toISOString() } } })
   .then(({ data, error }) => {
-    if (error) {
-      console.error(error)
-      return
-    }
+    if (error?.detail)
+      throw new Error(`validation error: ${JSON.stringify(error.detail)}`)
+
+    if (!data)
+      throw new Error('no data')
 
     const map = new Map<Booking['id'], Booking>()
 
@@ -147,7 +163,13 @@ client.GET('/bookings/', { params: { query: { start: startDate.toISOString(), en
       map.set(mappedBooking.id, mappedBooking)
     }
 
+    bookingsLoading.value = false
     actualBookings.value = map
+  })
+  .catch((err) => {
+    console.error('Failed to load bookings:', err)
+    // eslint-disable-next-line no-alert
+    alert('Failed to load bookings. Try again later.')
   })
 
 const actualBookingsByRoomSorted = computed(() => {
@@ -574,20 +596,39 @@ function handleBookingClick(event: MouseEvent) {
         </div>
 
         <div :class="$style.body">
-          <div v-for="room in actualRooms" :key="room.id" :class="$style.row">
-            <div :class="$style['row-header']">
-              {{ room.title }}
-            </div>
+          <div
+            v-for="(room, i) in (roomsLoading ? PLACEHOLDER_ROOMS : actualRooms)"
+            :key="room === 'placeholder' ? i : room.id "
+            :class="$style.row"
+          >
             <div
-              v-for="booking in actualBookingsByRoomSorted.get(room.id)?.values()"
-              :key="booking.id"
-              :class="$style.booking"
-              :style="{
-                '--left': px(bookingPositions.get(booking.id)?.offsetX ?? 0),
-                '--width': px(bookingPositions.get(booking.id)?.length ?? 0),
+              :class="{
+                [$style['row-header']]: true,
+                [$style.placeholder]: room === 'placeholder',
               }"
             >
+              <span>
+                {{ room === 'placeholder' ? 'PLACEHOLDER' : room.title }}
+              </span>
+            </div>
+
+            <div
+              v-for="(booking, j) in ((room === 'placeholder' || bookingsLoading) ? PLACEHOLDER_BOOKINGS : actualBookingsByRoomSorted.get(room.id)?.values())"
+              :key="booking === 'placeholder' ? j : booking.id"
+              :class="{
+                [$style.booking]: true,
+                [$style.placeholder]: booking === 'placeholder',
+              }"
+              :style="(booking === 'placeholder' ? {} : {
+                '--left': px(bookingPositions.get(booking.id)?.offsetX ?? 0),
+                '--width': px(bookingPositions.get(booking.id)?.length ?? 0),
+              })"
+            >
+              <div v-if="booking === 'placeholder'">
+                <span>PLACEHOLDER</span>
+              </div>
               <div
+                v-else
                 :title="booking.title"
                 :data-booking-id="booking.id"
                 @click="handleBookingClick"
@@ -650,6 +691,19 @@ $timebox-height: 20px;
   user-select: none;
 }
 
+@mixin skeleton {
+  background: var(--c-skeleton-bg);
+  color: transparent;
+  border-radius: borders.$radius-md;
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
 .timeline {
   --c-bg-items: #{colors.$gray-50};
   --c-bg-sheet: #{colors.$gray-100};
@@ -665,6 +719,7 @@ $timebox-height: 20px;
   --c-textbox-borders-purple: #{colors.$purple-600};
   --c-ruler-now: #{colors.$red-600};
   --c-ruler-new: #{colors.$purple-600};
+  --c-skeleton-bg: #{colors.$gray-300};
 }
 
 :global(.dark) {
@@ -683,6 +738,7 @@ $timebox-height: 20px;
     --c-textbox-borders-purple: #{colors.$purple-700};
     --c-ruler-now: #{colors.$red-800};
     --c-ruler-new: #{colors.$purple-800};
+    --c-skeleton-bg: #{colors.$gray-800};
   }
 }
 
@@ -805,6 +861,12 @@ $timebox-height: 20px;
       border-bottom-width: 1px;
     }
   }
+
+  &.placeholder::after {
+    position: absolute;
+    inset: 0;
+    background: pink;
+  }
 }
 
 .row-header {
@@ -821,6 +883,13 @@ $timebox-height: 20px;
   border-color: var(--c-borders);
   border-style: solid;
   border-right-width: 1px;
+
+  &.placeholder {
+    & > span {
+      @include skeleton;
+      width: 100%;
+    }
+  }
 }
 
 .rulers-svg {
@@ -892,19 +961,36 @@ $timebox-height: 20px;
   width: var(--width);
 
   & > div {
-    cursor: pointer;
     background: var(--c-bg-items);
     color: var(--c-text);
 
     :global(.dark) & {
       border: 1px solid var(--c-borders);
     }
+  }
+
+  &:not(.placeholder) > div {
+    cursor: pointer;
 
     & > span {
       position: sticky;
       left: var(--sidebar-width);
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+  }
+
+  &.placeholder {
+    flex: 1 0 auto;
+
+    & > div {
+      padding: 8px;
+
+      & > span {
+        @include skeleton;
+        position: relative;
+        width: 100%;
+      }
     }
   }
 }
