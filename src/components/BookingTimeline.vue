@@ -680,15 +680,18 @@ $timebox-height: 20px;
   }
 }
 
-@mixin timebox {
+@mixin timebox($text-color, $bg-color: transparent, $border-color: transparent) {
   @include text-sm;
   width: $timebox-width;
   height: $timebox-height;
   display: flex;
   justify-content: center;
   align-items: center;
-  color: var(--c-text-muted-2);
   user-select: none;
+  color: $text-color;
+  background: $bg-color;
+  border: 1px solid $border-color;
+  border-radius: borders.$radius-xs;
 }
 
 @mixin skeleton {
@@ -837,8 +840,8 @@ $timebox-height: 20px;
         width: calc(var(--ppm) * 60px);
 
         & > span {
-          @include timebox;
-          transform: translateX(-50%);
+          @include timebox(var(--c-text-muted-2));
+          transform: translate(-50%, 1px); // 1px down to align with dynamic timeboxes.
         }
       }
     }
@@ -930,16 +933,11 @@ $timebox-height: 20px;
 }
 
 .now-timebox {
-  @include timebox;
-
+  @include timebox(var(--c-textbox-text-red), var(--c-textbox-bg-red), var(--c-textbox-borders-red));
   position: sticky;
   right: 0;
   left: var(--sidebar-width);
   transform: translateY(var(--header-height));
-  background: var(--c-textbox-bg-red);
-  color: var(--c-textbox-text-red);
-  border: 1px solid var(--c-textbox-borders-red);
-  border-radius: borders.$radius-xs;
   cursor: pointer;
 }
 
@@ -1036,13 +1034,8 @@ $timebox-height: 20px;
 
 .new-booking-timebox-start,
 .new-booking-timebox-end {
-  @include timebox;
-
+  @include timebox(var(--c-textbox-text-purple), var(--c-textbox-bg-purple), var(--c-textbox-borders-purple));
   flex: 0 0 auto;
-  background: var(--c-textbox-bg-purple);
-  color: var(--c-textbox-text-purple);
-  border: 1px solid var(--c-textbox-borders-purple);
-  border-radius: borders.$radius-xs;
 }
 .new-booking-timebox-start {
   margin-right: auto;
