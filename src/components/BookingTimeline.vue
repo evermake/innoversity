@@ -789,7 +789,7 @@ $timebox-height: 20px;
 .scroller {
   position: relative;
   overflow: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: none;
   scrollbar-width: none;
 }
 
