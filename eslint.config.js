@@ -12,4 +12,9 @@ export default antfu(
       'design/*.json',
     ],
   },
+  {
+    rules: {
+      'ts/consistent-type-definitions': 'off',
+    },
+  },
 )
