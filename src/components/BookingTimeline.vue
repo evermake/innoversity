@@ -995,7 +995,7 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
           </div>
 
           <!-- Header of the timeline (dates and hours). -->
-          <div :class="$style.header">
+          <div v-memo="[timelineDates]" :class="$style.header">
             <div
               v-for="day in timelineDates"
               :key="day.toString()"
@@ -1013,7 +1013,7 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
           </div>
 
           <!-- Body of the timeline (rooms and bookings). -->
-          <div :class="$style.body">
+          <div v-memo="[roomsLoading, bookingsLoading, compactModeEnabled]" :class="$style.body">
             <div
               v-for="(room, i) in (roomsLoading ? PLACEHOLDER_ROOMS : actualRooms)"
               :key="room === 'placeholder' ? i : room.id "
@@ -1051,9 +1051,7 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
                   :data-booking-id="booking.id"
                   @click="handleBookingClick"
                 >
-                  <span>
-                    {{ booking.title }}
-                  </span>
+                  <span>{{ booking.title }}</span>
                 </div>
               </div>
             </div>
@@ -1507,7 +1505,6 @@ $button-height: 50px;
 .new-booking-timebox-start,
 .new-booking-timebox-end {
   @include timebox(var(--c-textbox-text-purple), var(--c-textbox-bg-purple), var(--c-textbox-borders-purple));
-  flex: 0 0 auto;
 }
 .new-booking-timebox-start {
   margin-right: auto;
