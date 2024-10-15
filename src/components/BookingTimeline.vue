@@ -158,6 +158,14 @@ function touchById(touches: TouchList, id: number): Touch | undefined {
     .find(({ identifier }) => identifier === id)
 }
 
+function slotsEqual(a: Slot, b: Slot): boolean {
+  return (
+    (a.room.id === b.room.id)
+    && (a.start.getTime() === b.start.getTime())
+    && (a.end.getTime() === b.end.getTime())
+  )
+}
+
 /* ========================================================================== */
 /* ============================= Initialization ============================= */
 /* ========================================================================== */
@@ -779,45 +787,55 @@ const newBookingTouched = computed(() => {
   }
 })
 
-const newBookingSlot = computed<Slot | null>(() => {
+const newBookingSlot = computed<Slot | null>((oldSlot) => {
   const state = interactionState.value
-  switch (state.type) {
-    case 'idle': return null
-    case 'mouse-hovering': {
-      const range = pendingBookingSafeRange({
-        room: state.hoverAt.room,
-        hoveredAt: state.hoverAt.date,
-      })
+  const newSlot = (() => {
+    switch (state.type) {
+      case 'idle': return null
+      case 'mouse-hovering': {
+        const range = pendingBookingSafeRange({
+          room: state.hoverAt.room,
+          hoveredAt: state.hoverAt.date,
+        })
 
-      if (!range)
-        return null
+        if (!range)
+          return null
 
-      return {
-        room: state.hoverAt.room,
-        start: range[0],
-        end: range[1],
+        return {
+          room: state.hoverAt.room,
+          start: range[0],
+          end: range[1],
+        }
       }
-    }
-    case 'mouse-dragging': {
-      const range = pendingBookingSafeRange({
-        room: state.clickAt.room,
-        pressedAt: state.clickAt.date,
-        hoveredAt: state.dragAt.date,
-      })
+      case 'mouse-dragging': {
+        const range = pendingBookingSafeRange({
+          room: state.clickAt.room,
+          pressedAt: state.clickAt.date,
+          hoveredAt: state.dragAt.date,
+        })
 
-      if (!range)
-        return null
+        if (!range)
+          return null
 
-      return {
-        room: state.clickAt.room,
-        start: range[0],
-        end: range[1],
+        return {
+          room: state.clickAt.room,
+          start: range[0],
+          end: range[1],
+        }
       }
+      case 'touch-inactive': return state.slot
+      case 'touch-dragging-edge': return state.slot
+      default: return state satisfies never
     }
-    case 'touch-inactive': return state.slot
-    case 'touch-dragging-edge': return state.slot
-    default: return state satisfies never
-  }
+  })()
+
+  if (!newSlot)
+    return null
+
+  if (oldSlot && slotsEqual(oldSlot, newSlot))
+    return oldSlot
+
+  return newSlot
 })
 
 const newBookingData = computed(() => {
@@ -914,8 +932,14 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
         '--header-height': px(HEADER_HEIGHT),
         '--row-height': px(ROW_HEIGHT),
         '--ppm': pixelsPerMinute,
-        'cursor': newBookingData ? 'crosshair' : undefined,
+        '--now-x': nowRulerX,
+        ...(newBookingData ? {
+          '--new-x': newBookingData.x,
+          '--new-y': newBookingData.y,
+          '--new-length': newBookingData.length,
+        } : {}),
       }"
+      :data-has-new="newBookingData ? '' : null"
       :data-new-pressed="(interactionState.type === 'mouse-dragging' || newBookingTouched) ? '' : null"
       :data-new-touched="newBookingTouched ? '' : null"
     >
@@ -927,6 +951,7 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
 
       <div ref="scrollerEl" :class="$style.scroller">
         <div ref="wrapperEl" :class="$style.wrapper">
+          <!-- Time rulers background. -->
           <svg :class="$style['rulers-svg']" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <pattern id="Rulers" x="0" y="0" :width="pixelsPerMinute * 60" height="100%" patternUnits="userSpaceOnUse">
@@ -939,49 +964,37 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
             <rect fill="url(#Rulers)" width="100%" height="100%" />
           </svg>
 
-          <div :style="{ '--now-x': nowRulerX }">
-            <span :class="$style['now-ruler']" />
-            <div :class="$style['now-timebox-wrapper']">
-              <span
-                :class="$style['now-timebox']"
-                @click="scrollToNow({ position: 'center' })"
-              >
-                {{ clockTime(now) }}
+          <!-- Current time elements. -->
+          <span :class="$style['now-ruler']" />
+          <div :class="$style['now-timebox-wrapper']">
+            <span
+              :class="$style['now-timebox']"
+              @click="scrollToNow({ position: 'center' })"
+            >
+              {{ clockTime(now) }}
+            </span>
+          </div>
+
+          <!-- New booking elements. -->
+          <span :class="$style['new-booking-ruler-start']" />
+          <span :class="$style['new-booking-ruler-end']" />
+          <div :class="$style['new-booking-timeboxes-wrapper']">
+            <div :class="$style['new-booking-timeboxes-container']">
+              <span :class="$style['new-booking-timebox-start']">
+                {{ newBookingData?.startTime }}
+              </span>
+              <span :class="$style['new-booking-timebox-end']">
+                {{ newBookingData?.endTime }}
               </span>
             </div>
           </div>
-
-          <div
-            :style="{
-              ...(newBookingData ? {
-                '--new-x': newBookingData.x,
-                '--new-y': newBookingData.y,
-                '--new-length': newBookingData.length,
-              } : {
-                visibility: 'hidden',
-              }),
-            }"
-          >
-            <span :class="$style['new-booking-ruler-start']" />
-            <span :class="$style['new-booking-ruler-end']" />
-            <div :class="$style['new-booking-timeboxes-wrapper']">
-              <div :class="$style['new-booking-timeboxes-container']">
-                <span :class="$style['new-booking-timebox-start']">
-                  {{ newBookingData?.startTime }}
-                </span>
-                <span :class="$style['new-booking-timebox-end']">
-                  {{ newBookingData?.endTime }}
-                </span>
-              </div>
-            </div>
-
-            <div :class="$style['new-booking']">
-              <div :id="NEW_BOOKING_BOX_ID">
-                <span>{{ newBookingData?.durationText }}</span>
-              </div>
+          <div :class="$style['new-booking']">
+            <div :id="NEW_BOOKING_BOX_ID">
+              <span>{{ newBookingData?.durationText }}</span>
             </div>
           </div>
 
+          <!-- Header of the timeline (dates and hours). -->
           <div :class="$style.header">
             <div
               v-for="day in timelineDates"
@@ -999,6 +1012,7 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
             </div>
           </div>
 
+          <!-- Body of the timeline (rooms and bookings). -->
           <div :class="$style.body">
             <div
               v-for="(room, i) in (roomsLoading ? PLACEHOLDER_ROOMS : actualRooms)"
@@ -1176,6 +1190,10 @@ $button-height: 50px;
   background: var(--c-bg-sheet);
   border: 1px solid var(--c-borders);
   border-radius: borders.$radius-md;
+
+  &[data-has-new] {
+    cursor: crosshair !important;
+  }
 }
 
 .corner {
@@ -1227,10 +1245,6 @@ $button-height: 50px;
   flex-direction: column;
   width: fit-content;
   position: relative;
-
-  background-image: var(--rulers-bg);
-  background-position-x: var(--sidebar-width);
-  background-repeat: repeat;
 }
 
 .header {
@@ -1522,6 +1536,15 @@ $button-height: 50px;
 .timeline:not([data-new-pressed]) .new-booking-ruler-end,
 .timeline:not([data-new-pressed]) .new-booking-timebox-end {
   visibility: hidden;
+}
+
+.timeline:not([data-has-new]) {
+  & .new-booking,
+  & .new-booking-ruler-start,
+  & .new-booking-ruler-end,
+  & .new-booking-timeboxes-wrapper {
+    visibility: hidden;
+  }
 }
 
 .buttons {
