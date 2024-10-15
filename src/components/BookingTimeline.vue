@@ -18,7 +18,7 @@ const emit = defineEmits<{
 /* =============================== Constants ================================ */
 /* ========================================================================== */
 
-const COMPACT_VERSION_THRESHOLD_PX = 768
+const COMPACT_VERSION_WIDTH_THRESHOLD = 768
 
 const SIDEBAR_WIDTH_DEFAULT = 200
 const SIDEBAR_WIDTH_COMPACT = 65
@@ -90,7 +90,7 @@ type BookingPosition = {
 /* ============================== Compact Mode ============================== */
 /* ========================================================================== */
 
-const compactModeEnabled = useMediaQuery(`(max-width: ${COMPACT_VERSION_THRESHOLD_PX}px)`)
+const compactModeEnabled = useMediaQuery(`(max-width: ${COMPACT_VERSION_WIDTH_THRESHOLD}px)`)
 const sidebarWidth = computed(() => (compactModeEnabled.value ? SIDEBAR_WIDTH_COMPACT : SIDEBAR_WIDTH_DEFAULT))
 const pixelsPerMinute = computed(() => (compactModeEnabled.value ? PIXELS_PER_MINUTE_COMPACT : PIXELS_PER_MINUTE_DEFAULT))
 
@@ -152,6 +152,12 @@ function overlappingDates(...items: Date[]): [Date, Date] {
   return [items.at(0)!, items.at(-1)!]
 }
 
+function touchById(touches: TouchList, id: number): Touch | undefined {
+  return Array
+    .from(touches)
+    .find(({ identifier }) => identifier === id)
+}
+
 /* ========================================================================== */
 /* ============================= Initialization ============================= */
 /* ========================================================================== */
@@ -188,7 +194,7 @@ onMounted(() => {
 
 const client = createClient<paths>({ baseUrl: import.meta.env.VITE_APP_BOOKING_API_BASE_URL })
 
-const actualRooms = shallowRef<(Room)[]>([])
+const actualRooms = shallowRef<Room[]>([])
 const roomsLoading = shallowRef(true)
 client.GET('/rooms/')
   .then(({ data }) => {
@@ -521,7 +527,7 @@ const stateListenerTransitionMap: {
   },
   'touch-dragging-edge': {
     touchmove: (event, state) => {
-      const touch = Array.from(event.changedTouches).find(({ identifier }) => identifier === state.touchId)
+      const touch = touchById(event.changedTouches, state.touchId)
       if (!touch)
         return null
 
@@ -693,7 +699,7 @@ function transition5_mouseup(event: MouseEvent, state: InteractionState_<'mouse-
 }
 
 function transition6_touchend(event: TouchEvent, state: InteractionState_<'touch-dragging-edge'>): InteractionState | null {
-  const touch = Array.from(event.changedTouches).find(({ identifier }) => identifier === state.touchId)
+  const touch = touchById(event.changedTouches, state.touchId)
   if (!touch)
     return null
 
@@ -820,10 +826,16 @@ const newBookingData = computed(() => {
   if (!slot)
     return null
 
+  const duration = msBetween(slot.start, slot.end)
+
   return {
-    duration: msBetween(slot.start, slot.end),
-    x: msToPx(msBetween(timelineStart, slot.start)),
-    y: slot.room.idx * ROW_HEIGHT,
+    duration,
+    length: px(msToPx(duration)),
+    x: px(msToPx(msBetween(timelineStart, slot.start))),
+    y: px(slot.room.idx * ROW_HEIGHT),
+    durationText: durationFormatted(duration),
+    startTime: clockTime(slot.start),
+    endTime: clockTime(slot.end),
   }
 })
 
@@ -902,13 +914,7 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
         '--header-height': px(HEADER_HEIGHT),
         '--row-height': px(ROW_HEIGHT),
         '--ppm': pixelsPerMinute,
-        '--now-x': nowRulerX,
-        ...(newBookingData && {
-          'cursor': 'crosshair',
-          '--new-x': px(newBookingData.x),
-          '--new-y': px(newBookingData.y),
-          '--new-length': px(msToPx(newBookingData.duration)),
-        }),
+        'cursor': newBookingData ? 'crosshair' : undefined,
       }"
       :data-new-pressed="(interactionState.type === 'mouse-dragging' || newBookingTouched) ? '' : null"
       :data-new-touched="newBookingTouched ? '' : null"
@@ -921,31 +927,6 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
 
       <div ref="scrollerEl" :class="$style.scroller">
         <div ref="wrapperEl" :class="$style.wrapper">
-          <span :class="$style['now-ruler']" />
-          <div :class="$style['now-timebox-wrapper']">
-            <span
-              :class="$style['now-timebox']"
-              @click="scrollToNow({ position: 'center' })"
-            >
-              {{ clockTime(now) }}
-            </span>
-          </div>
-
-          <template v-if="newBookingSlot">
-            <span :class="$style['new-booking-ruler-start']" />
-            <span :class="$style['new-booking-ruler-end']" />
-            <div :class="$style['new-booking-timeboxes-wrapper']">
-              <div :class="$style['new-booking-timeboxes-container']">
-                <span :class="$style['new-booking-timebox-start']">
-                  {{ clockTime(newBookingSlot.start) }}
-                </span>
-                <span :class="$style['new-booking-timebox-end']">
-                  {{ clockTime(newBookingSlot.end) }}
-                </span>
-              </div>
-            </div>
-          </template>
-
           <svg :class="$style['rulers-svg']" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <pattern id="Rulers" x="0" y="0" :width="pixelsPerMinute * 60" height="100%" patternUnits="userSpaceOnUse">
@@ -958,12 +939,46 @@ function scrollToNow(options?: Omit<ScrollToOptions, 'to'>) {
             <rect fill="url(#Rulers)" width="100%" height="100%" />
           </svg>
 
+          <div :style="{ '--now-x': nowRulerX }">
+            <span :class="$style['now-ruler']" />
+            <div :class="$style['now-timebox-wrapper']">
+              <span
+                :class="$style['now-timebox']"
+                @click="scrollToNow({ position: 'center' })"
+              >
+                {{ clockTime(now) }}
+              </span>
+            </div>
+          </div>
+
           <div
-            v-if="newBookingData"
-            :class="$style['new-booking']"
+            :style="{
+              ...(newBookingData ? {
+                '--new-x': newBookingData.x,
+                '--new-y': newBookingData.y,
+                '--new-length': newBookingData.length,
+              } : {
+                visibility: 'hidden',
+              }),
+            }"
           >
-            <div :id="NEW_BOOKING_BOX_ID">
-              <span>{{ durationFormatted(newBookingData.duration) }}</span>
+            <span :class="$style['new-booking-ruler-start']" />
+            <span :class="$style['new-booking-ruler-end']" />
+            <div :class="$style['new-booking-timeboxes-wrapper']">
+              <div :class="$style['new-booking-timeboxes-container']">
+                <span :class="$style['new-booking-timebox-start']">
+                  {{ newBookingData?.startTime }}
+                </span>
+                <span :class="$style['new-booking-timebox-end']">
+                  {{ newBookingData?.endTime }}
+                </span>
+              </div>
+            </div>
+
+            <div :class="$style['new-booking']">
+              <div :id="NEW_BOOKING_BOX_ID">
+                <span>{{ newBookingData?.durationText }}</span>
+              </div>
             </div>
           </div>
 
@@ -1469,10 +1484,10 @@ $button-height: 50px;
   top: var(--header-height);
   width: calc(max($timebox-width, var(--new-length)) + $timebox-width);
   transform: translate(-50%, -100%);
-
   display: flex;
   align-items: center;
   justify-content: center;
+  will-change: left, width;
 }
 
 .new-booking-timebox-start,
@@ -1495,6 +1510,7 @@ $button-height: 50px;
   height: 100%;
   width: 1px;
   background: var(--c-ruler-new);
+  will-change: left;
 }
 .new-booking-ruler-start {
   left: calc(var(--sidebar-width) + var(--new-x));
