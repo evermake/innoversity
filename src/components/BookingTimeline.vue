@@ -29,11 +29,6 @@ const PIXELS_PER_MINUTE_COMPACT = 85 / 30
 const HEADER_HEIGHT = 60
 const ROW_HEIGHT = 50
 
-const MIN_BOOKING_DURATION_MINUTES = 15
-const BOOKING_DURATION_STEP = 5
-
-const NEW_BOOKING_BOX_ID = 'new-booking-box'
-
 const T = {
   Ms: 1,
   Sec: 1000,
@@ -41,6 +36,12 @@ const T = {
   Hour: 1000 * 60 * 60,
   Day: 1000 * 60 * 60 * 24,
 }
+
+const TIME_GRID_SCALE = 5 * T.Min
+const MIN_BOOKING_DURATION = 15 * T.Min
+const MAX_BOOKING_DURATION = 3 * T.Hour
+
+const NEW_BOOKING_BOX_ID = 'new-booking-box'
 
 const PLACEHOLDER_ROOMS = Array
   .from({ length: 15 })
@@ -133,25 +134,6 @@ function dayTitle(d: Date) {
   })
 }
 
-// TODO: Rename it and document.
-function dateBoundsMinutes(d: Date, step: number, size: number): [Date, Date] {
-  const gridScale = step * T.Min
-  const targetDuration = size * T.Min
-
-  let leftMs = d.getTime() - Math.round(targetDuration / 2)
-  const leftLeftMs = leftMs - (leftMs % gridScale)
-  const leftRightMs = leftLeftMs + gridScale
-  leftMs = (leftMs - leftLeftMs) < (leftRightMs - leftMs) ? leftLeftMs : leftRightMs
-  const rightMs = leftMs + Math.round(targetDuration / gridScale) * gridScale
-
-  return [new Date(leftMs), new Date(rightMs)]
-}
-
-function overlappingDates(...items: Date[]): [Date, Date] {
-  items.sort((a, b) => a.getTime() - b.getTime())
-  return [items.at(0)!, items.at(-1)!]
-}
-
 function touchById(touches: TouchList, id: number): Touch | undefined {
   return Array
     .from(touches)
@@ -164,6 +146,14 @@ function slotsEqual(a: Slot, b: Slot): boolean {
     && (a.start.getTime() === b.start.getTime())
     && (a.end.getTime() === b.end.getTime())
   )
+}
+
+function timeGridNeighbors(
+  time: number,
+  gridScale: number = TIME_GRID_SCALE,
+): [number, number] {
+  const leftMs = time - (time % gridScale)
+  return [leftMs, leftMs + gridScale]
 }
 
 /* ========================================================================== */
@@ -305,42 +295,72 @@ const bookingPositions = computed(() => {
   return positions
 })
 
+function snappedSafeNow() {
+  const [, snappedRight] = timeGridNeighbors(now.value.getTime() + T.Min)
+  return snappedRight
+}
+
 /**
- * Returns boolean indicating whether the range intersects any of
- * the room bookings.
+ * Given a time range and room ID, returns a list of all bookings that intersect
+ * this range, if any.
  *
- * @param a Start of input range.
- * @param b End of input range.
+ * Note: booking is not considred intersecting, if it "touches" the range only
+ * with 1ms.
+ *
+ * @param aMs Left boundary of the range.
+ * @param bMs Right boundary of the range.
  * @param roomId ID of the room, which bookings should be checked.
  */
-function intersectsSomeBooking(
-  a: Date,
-  b: Date,
+function rangeIntersectingBookings(
+  aMs: number,
+  bMs: number,
   roomId: string,
-): boolean {
-  const aMs = a.getTime()
-  const bMs = b.getTime()
-
-  if (aMs >= bMs)
+): Booking[] {
+  if (aMs > bMs)
     throw new Error('invalid range limits')
 
   const bookings = actualBookingsByRoomSorted.value.get(roomId)
   if (!bookings || bookings.length === 0)
-    return false
+    return []
 
+  // 1. Find first booking that ends after range left boundary.
   let l = 0
   let r = bookings.length - 1
-  while (l <= r) {
+  while (l < r) {
     const m = Math.floor((l + r) / 2)
-    const mBooking = bookings[m]
-    if (mBooking.endsAt.getTime() <= aMs)
+    const endMs = bookings[m].endsAt.getTime()
+    if (endMs <= aMs)
       l = m + 1
-    else if (mBooking.startsAt.getTime() >= bMs)
+    else
+      r = m
+  }
+
+  if (l !== r)
+    return []
+
+  if (bookings[l].startsAt.getTime() >= bMs) // First and doesn't intersect.
+    return []
+
+  const first = l
+
+  // 2. Find first booking that starts before range right boundary.
+  r = bookings.length - 1
+  while (l < r) {
+    const m = Math.ceil((l + r) / 2)
+    const startsMs = bookings[m].startsAt.getTime()
+    if (startsMs >= bMs)
       r = m - 1
     else
-      return true
+      l = m
   }
-  return false
+
+  if (l !== r)
+    return []
+
+  const last = r
+
+  // 3. Return slice.
+  return bookings.slice(first, last + 1)
 }
 
 /** Element with unlimited size that holds all elements of the timeline. */
@@ -352,40 +372,140 @@ const scrollerEl = ref<HTMLElement | null>(null)
 /** Element that is positioned on the interactive area of the timeline. */
 const overlayEl = ref<HTMLElement | null>(null)
 
-// TODO: Rename, refactor and document it.
-function pendingBookingSafeRange(booking: {
-  room: Room
-  hoveredAt: Date
-  pressedAt?: Date
-}): null | [Date, Date] {
-  const { pressedAt, hoveredAt, room } = booking
+function bookingRangeByHoverDate(
+  dateMs: number,
+  targetDuration: number,
+  gridScale: number = TIME_GRID_SCALE,
+): [number, number] {
+  const leftMs = dateMs - Math.round(targetDuration / 2)
 
-  let [l, r] = (() => {
-    if (pressedAt) {
-      return overlappingDates(
-        ...dateBoundsMinutes(pressedAt, BOOKING_DURATION_STEP, MIN_BOOKING_DURATION_MINUTES),
-        ...dateBoundsMinutes(hoveredAt, BOOKING_DURATION_STEP, BOOKING_DURATION_STEP),
-      )
-    }
-    return dateBoundsMinutes(hoveredAt, BOOKING_DURATION_STEP, MIN_BOOKING_DURATION_MINUTES)
-  })()
+  const [leftSnap1, leftSnap2] = timeGridNeighbors(leftMs)
 
-  if (msBetween(now, r) < 0)
-    return null // booking is in the past
+  const leftSnappedMs = (leftMs - leftSnap1) < (leftSnap2 - leftMs) ? leftSnap1 : leftSnap2
+  const rightSnappedMs = leftSnappedMs + Math.ceil(targetDuration / gridScale) * gridScale
 
-  const [, safeL] = dateBoundsMinutes(now.value, 5, 5)
-  safeL.setMinutes(safeL.getMinutes() + 5)
+  return [leftSnappedMs, rightSnappedMs]
+}
 
-  if (msBetween(safeL, l) < 0) { // Booking start is too close to `now`.
-    if (msBetween(safeL, r) < MIN_BOOKING_DURATION_MINUTES * T.Min)
-      // Booking end is also too close to `now`.
+function validRangeForPosition(
+  posMs: number,
+  roomId: Room['id'],
+  duration = MIN_BOOKING_DURATION,
+): [number, number] | null {
+  let [l, r] = bookingRangeByHoverDate(posMs, duration)
+  const posWithinRange = () => (l <= posMs && posMs <= r)
+
+  // 1. Make sure range is after now.
+  const safeLeft = snappedSafeNow()
+  if (l < safeLeft) { // Need to adjust.
+    r += safeLeft - l
+    l = safeLeft
+
+    if (!posWithinRange())
       return null
-
-    l = safeL
   }
 
-  if (intersectsSomeBooking(l, r, room.id))
+  // 2. Make sure range doesn't interfere with other bookings.
+  const intersecting = rangeIntersectingBookings(l, r, roomId)
+  switch (intersecting.length) {
+    case 0: break
+    case 1: {
+      const bl = intersecting[0].startsAt.getTime()
+      const br = intersecting[0].endsAt.getTime()
+
+      if (l < br && br < r) {
+        r += br - l
+        l = br
+      }
+      else if (l < bl && bl < r) {
+        l -= r - bl
+        r = bl
+      }
+      else {
+        return null
+      }
+
+      if (!posWithinRange())
+        return null
+
+      const adjustedIntersecting = rangeIntersectingBookings(l, r, roomId)
+      if (adjustedIntersecting.length > 0)
+        return null
+
+      break
+    }
+    default: return null
+  }
+
+  // TODO: Should we snap to the grid after adjusting range? Because bookings
+  //  are not guaranteed to snap to the grid.
+
+  return [l, r]
+}
+
+/**
+ * Given a room ID, initial date and target date, returns a time range
+ * such that one of its boundaries is the `dInitial` and the second one
+ * is the date that is as close as possible to the `dTarget` such that
+ * the resulting range is a valid slot for booking the room.
+ *
+ * Returns `null`, if it's impossible to create such range.
+ *
+ * @param roomId Room ID for which to calculate.
+ * @param dInitialMs Initial position on the timeline.
+ * @param dTargetMs Target date until which the range should be stretched.
+ */
+function validStretchedSlotRange(
+  roomId: string,
+  dInitialMs: number,
+  dTargetMs: number,
+  maxDuration: number = MAX_BOOKING_DURATION,
+): [number, number] | null {
+  const safeLeft = snappedSafeNow()
+
+  if (dInitialMs < safeLeft)
     return null
+
+  let l, r
+  if (dInitialMs < dTargetMs) { // Stretching to the right.
+    if (dTargetMs - dInitialMs > maxDuration)
+      dTargetMs = dInitialMs + maxDuration
+
+    const firstIntersecting = rangeIntersectingBookings(dInitialMs, dTargetMs, roomId).at(0)
+
+    if (firstIntersecting) {
+      const bl = firstIntersecting.startsAt.getTime()
+
+      if (bl <= dInitialMs)
+        return null
+
+      dTargetMs = bl
+    }
+
+    l = dInitialMs
+    r = dTargetMs
+  }
+  else { // Stretching to the left.
+    if (dInitialMs - dTargetMs > maxDuration)
+      dTargetMs = dInitialMs - maxDuration
+
+    if (dTargetMs < safeLeft)
+      dTargetMs = safeLeft
+
+    const lastIntersecting = rangeIntersectingBookings(dTargetMs, dInitialMs, roomId).at(-1)
+
+    if (lastIntersecting) {
+      const br = lastIntersecting.endsAt.getTime()
+
+      if (br >= dInitialMs)
+        return null
+
+      dTargetMs = br
+    }
+
+    l = dTargetMs
+    r = dInitialMs
+  }
 
   return [l, r]
 }
@@ -459,6 +579,64 @@ type InteractionState =
 
 type InteractionState_<S extends InteractionState['type']> = Extract<InteractionState, { type: S }>
 
+function validSlotByState(state: InteractionState): Slot | null {
+  switch (state.type) {
+    case 'idle': return null
+    case 'mouse-hovering': {
+      const range = validRangeForPosition(
+        state.hoverAt.date.getTime(),
+        state.hoverAt.room.id,
+      )
+
+      if (!range)
+        return null
+
+      return {
+        room: state.hoverAt.room,
+        start: new Date(range[0]),
+        end: new Date(range[1]),
+      }
+    }
+    case 'mouse-dragging': {
+      const range = validRangeForPosition(
+        state.clickAt.date.getTime(),
+        state.clickAt.room.id,
+      )
+
+      if (!range)
+        return null
+
+      const [l, r] = range
+      const dragMs = state.dragAt.date.getTime()
+
+      let final
+      if (dragMs < l) {
+        const [dragSnapped, _] = timeGridNeighbors(dragMs)
+        final = validStretchedSlotRange(state.clickAt.room.id, r, dragSnapped)
+      }
+      else if (dragMs > r) {
+        const [_, dragSnapped] = timeGridNeighbors(dragMs)
+        final = validStretchedSlotRange(state.clickAt.room.id, l, dragSnapped)
+      }
+      else {
+        final = [l, r]
+      }
+
+      if (!final)
+        return null
+
+      return {
+        room: state.clickAt.room,
+        start: new Date(final[0]),
+        end: new Date(final[1]),
+      }
+    }
+    case 'touch-inactive': return state.slot
+    case 'touch-dragging-edge': return state.slot
+    default: return state satisfies never
+  }
+}
+
 const interactionState = shallowRef<InteractionState>({ type: 'idle' })
 
 // FIXME: Hack to distinguish mouse events from touch events.
@@ -489,7 +667,15 @@ const stateListenerTransitionMap: {
   'mouse-dragging': {
     mousemove: transition4_mousemove,
     mouseleave: transition3_mouseleave,
-    mouseup: transition5_mouseup,
+    mouseup: (event, state) => {
+      event.preventDefault()
+      const slot = validSlotByState(state)
+
+      if (slot)
+        emit('book', slot)
+
+      return { type: 'idle' }
+    },
   },
   'touch-inactive': {
     touchstart: (event, state) => {
@@ -520,7 +706,7 @@ const stateListenerTransitionMap: {
         return null
       })()
 
-      if (touchedEdge === null)
+      if (!touchedEdge)
         return null
 
       event.preventDefault()
@@ -550,50 +736,40 @@ const stateListenerTransitionMap: {
       if (!pos)
         return null
 
-      // TODO: calculate it in a better way.
-      const newSlot = (() => {
-        switch (state.edge) {
-          case 'left': {
-            const range = pendingBookingSafeRange({
-              room: state.slot.room,
-              pressedAt: state.slot.end,
-              hoveredAt: pos.date,
-            })
-            if (!range)
-              return null
-            return {
-              room: state.slot.room,
-              start: range[0],
-              end: state.slot.end,
-            }
-          }
-          case 'right':{
-            const range = pendingBookingSafeRange({
-              room: state.slot.room,
-              pressedAt: state.slot.start,
-              hoveredAt: pos.date,
-            })
-            if (!range)
-              return null
-            return {
-              room: state.slot.room,
-              start: state.slot.start,
-              end: range[1],
-            }
-          }
-        }
-      })()
+      let toMs = pos.date.getTime()
+      let fromMs
+      switch (state.edge) {
+        case 'left':
+          fromMs = state.slot.end.getTime()
+          toMs = timeGridNeighbors(toMs)[0]
+          break
+        case 'right':
+          fromMs = state.slot.start.getTime()
+          toMs = timeGridNeighbors(toMs)[1]
+          break
+      }
 
-      if (!newSlot)
+      const newRange = validStretchedSlotRange(state.slot.room.id, fromMs, toMs)
+      if (!newRange)
+        return { type: 'idle' }
+
+      const newStart = new Date(newRange[0])
+      const newEnd = new Date(newRange[1])
+
+      if (msBetween(newStart, newEnd) < MIN_BOOKING_DURATION)
         return null
 
       return {
         ...state,
-        slot: newSlot,
+        slot: {
+          room: state.slot.room,
+          start: newStart,
+          end: newEnd,
+        },
       }
     },
-    touchend: transition6_touchend,
-    touchcancel: transition6_touchend,
+    touchend: transition5_touchend,
+    touchcancel: transition5_touchend,
   },
 }
 
@@ -633,21 +809,17 @@ function transition2_mousedown(event: MouseEvent, state: InteractionState): Inte
   event.stopImmediatePropagation()
 
   if (isTouchEvent(event)) {
-    const range = pendingBookingSafeRange({
-      room: pos.room,
-      hoveredAt: pos.date,
+    const slot = validSlotByState({
+      type: 'mouse-hovering',
+      hoverAt: pos,
     })
 
-    if (!range)
+    if (!slot)
       return null
 
     return {
       type: 'touch-inactive',
-      slot: {
-        room: pos.room,
-        start: range[0],
-        end: range[1],
-      },
+      slot,
     }
   }
 
@@ -682,31 +854,7 @@ function transition4_mousemove(event: MouseEvent, state: InteractionState_<'mous
   }
 }
 
-function transition5_mouseup(event: MouseEvent, state: InteractionState_<'mouse-dragging'>): InteractionState {
-  const { clientX, clientY } = event
-
-  if (!clientCoordinatesWithinOverlay(clientX, clientY))
-    return { type: 'idle' }
-
-  const range = pendingBookingSafeRange({
-    room: state.clickAt.room,
-    pressedAt: state.clickAt.date,
-    hoveredAt: state.dragAt.date,
-  })
-
-  if (!range)
-    return { type: 'idle' }
-
-  emit('book', {
-    room: state.clickAt.room,
-    start: range[0],
-    end: range[1],
-  })
-
-  return { type: 'idle' }
-}
-
-function transition6_touchend(event: TouchEvent, state: InteractionState_<'touch-dragging-edge'>): InteractionState | null {
+function transition5_touchend(event: TouchEvent, state: InteractionState_<'touch-dragging-edge'>): InteractionState | null {
   const touch = touchById(event.changedTouches, state.touchId)
   if (!touch)
     return null
@@ -738,6 +886,7 @@ function handleBoookingConfirm() {
   }
 }
 
+// Register event listeners for the current state.
 watch(
   [() => interactionState.value.type, wrapperEl],
   ([newState, el], _, onCleanup) => {
@@ -788,50 +937,12 @@ const newBookingTouched = computed(() => {
 })
 
 const newBookingSlot = computed<Slot | null>((oldSlot) => {
-  const state = interactionState.value
-  const newSlot = (() => {
-    switch (state.type) {
-      case 'idle': return null
-      case 'mouse-hovering': {
-        const range = pendingBookingSafeRange({
-          room: state.hoverAt.room,
-          hoveredAt: state.hoverAt.date,
-        })
-
-        if (!range)
-          return null
-
-        return {
-          room: state.hoverAt.room,
-          start: range[0],
-          end: range[1],
-        }
-      }
-      case 'mouse-dragging': {
-        const range = pendingBookingSafeRange({
-          room: state.clickAt.room,
-          pressedAt: state.clickAt.date,
-          hoveredAt: state.dragAt.date,
-        })
-
-        if (!range)
-          return null
-
-        return {
-          room: state.clickAt.room,
-          start: range[0],
-          end: range[1],
-        }
-      }
-      case 'touch-inactive': return state.slot
-      case 'touch-dragging-edge': return state.slot
-      default: return state satisfies never
-    }
-  })()
+  const newSlot = validSlotByState(interactionState.value)
 
   if (!newSlot)
     return null
 
+  // To prevent unnecessary updates.
   if (oldSlot && slotsEqual(oldSlot, newSlot))
     return oldSlot
 
